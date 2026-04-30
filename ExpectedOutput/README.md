@@ -6,3 +6,5 @@
 - The Output folder content should match
 - If the path is empty, ClientInput and Output folder should not be created.
 
+* Tasneem Abdullah, abdul909
+* Noah Lim, lim00227
