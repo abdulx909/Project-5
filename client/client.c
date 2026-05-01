@@ -83,13 +83,13 @@ void traverseFS(int clients, char *path){
 	int i;
 	for (i = 0; i < clients; i++){
 		// create the mapper file name (ClinetInput/clienti.txt)
+		snprintf(folder
 	}
 
 	// Call recursiveTraverseFS
 	int toInsert = 0; //refers to the File to which the current file path should be inserted
 	int nFiles = 0;
-	recursiveTraverseFS(clients, path, fp, &toInsert, &nFiles);
-
+	recursiveTraverseFS(clients, path, fp, toInsert, nFiles);
 	// close all the file pointers
 	close(fp);
 }
@@ -116,7 +116,7 @@ int main(int argc, char *argv[]){
     return 1;
   }
   // Create folder for outputs
-
+  mkdir("ClientOutputs", 0777);
   // Create `num_clients` children processes using fork()
   for (int i=0; i<num_clients; i++){
     pid_t pid = fork();
@@ -126,18 +126,19 @@ int main(int argc, char *argv[]){
       FILE * ftr; // ftr should point to the correct clienti.txt
       while (fgets (line, MSGLEN, ftr)!=NULL ) {
         // Sned line
-
+		msgsnd(msgqueue, (void *)&line, sizeof(line));
         // wait for ACK from server before sending the next line
-
+		timestamp();
+		
       }
 
       // When finish sending all the lines in clienti.txt
       // send END message to server
-
+	  msgsnd(msgqueue, "END", sizeof("END"));
       //Wait with msgrcv() for the result (output string)
-
+	  char res = msgrcv(msgqueue, (void)&msg, sizeof(msg), 0, 0);
       //write output to file
-
+	  
       exit(0);
     }
   }
