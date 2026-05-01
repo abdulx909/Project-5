@@ -40,7 +40,7 @@ void timestamp(){
 // nFiles: the total number of files you traversed
 void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert, int *nFiles){
 	struct dirent *dirContentPtr;
-
+	char path[100];
 	//check if the directory exists
 	DIR *dir = opendir(basePath);
 	if(dir == DIRNULL){
@@ -76,7 +76,7 @@ void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert,
 // After that, call traverseFS() to traversal and partition files
 void traverseFS(int clients, char *path){
 	FILE *fp[clients];
-	chae *filename[100];
+	char *filename[100];
 
 	//Create a folder 'ClientInput' to store CLient Input Files
 	mkdir("ClientInput", 0777);
@@ -103,7 +103,9 @@ int main(int argc, char *argv[]){
   strcpy(folderName, argv[1]);
   int num_clients = atoi(argv[2]);
   key_t key;
-
+  struct msg_buffer msg;
+  struct msg_buffer res;
+  char output[MSGLEN];
   // call traverseFS() to traverse and partition files
   traverseFS(num_clients, folderName);
   //Get access to the msg Queue
@@ -129,7 +131,9 @@ int main(int argc, char *argv[]){
       FILE * ftr; // ftr should point to the correct clienti.txt
       while (fgets (line, MSGLEN, ftr)!=NULL ) {
         // Sned line
-		msgsnd(msgqueue, (void *)&line, sizeof(line));
+		msg.mesg_type = 1;
+		msg.mesg_text = line;
+		msgsnd(msgqueue, (void *)&msg, sizeof(msg), 0);
         // wait for ACK from server before sending the next line
 		timestamp();
 		
@@ -137,11 +141,14 @@ int main(int argc, char *argv[]){
 
       // When finish sending all the lines in clienti.txt
       // send END message to server
-	  msgsnd(msgqueue, "END", sizeof("END"));
+	  msg.mesg_text = "END";
+	  msgsnd(msgqueue, (void *)&msg, sizeof(msg), 0);
       //Wait with msgrcv() for the result (output string)
-	  char res = msgrcv(msgqueue, (void)&msg, sizeof(msg), 0, 0);
+	  msgrcv(msgqueue, (void *)&res, sizeof(res), 0, 0);
       //write output to file
-	  
+	  snprintf(output, sizeof(output), "Output/Client%d_out.txt", i);
+	  FILE *fin = fopen(output, "w");
+ 	  fprintf(output, "%s", result.mesg_text);
       exit(0);
     }
   }
