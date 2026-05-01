@@ -22,6 +22,15 @@ struct msg_buffer {
 
 // Should be the same function as in handleClients.c
 void timestamp(){
+  time_t now;
+  struct tm *timeInfo;
+  char timeString[80];
+
+  time(&now);
+  timeInfo = localtime(&now);
+  strftime(timeString, sizeof(timeString), "%a %b %d %H:%M:%S %Y", timeInfo);
+
+  printf("[%s]", timeString);
 }
 
 // Traversal the file system recursively and write file pathes to mapper files (ClinetInput/clienti.txt
@@ -49,10 +58,12 @@ void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert,
       (dirContentPtr->d_name[0] != '.'))
       {
         if (dirContentPtr->d_type == DT_REG){
+			fp[nFiles] = dirContentPtr->d_name;
           // For a file, you write its name into a mapper file (pointed by one entry in fp[])
           // NOTE: to balance the number of files per client, you can loop though all clients when distributing files
           // e.f. Assume you have 3 clients, then file1 for client1, file2 for client2, file3 for client3, file4 for client1, file 5 for client2...
         }else if (dirContentPtr->d_type == DT_DIR){
+			recursiveTraverseFS(mappers, basemap, fp, &toInsert, &nFiles);
           // For a directory, you call recursiveTraverseFS() 
         }
 		}
@@ -66,8 +77,9 @@ void traverseFS(int clients, char *path){
 	FILE *fp[clients];
 
 	//Create a folder 'ClientInput' to store CLient Input Files
-
+	mkdir("ClientInput", 0777);
 	// open client input files to store paths of files to be processed by each server thread
+	open(fp);
 	int i;
 	for (i = 0; i < clients; i++){
 		// create the mapper file name (ClinetInput/clienti.txt)
@@ -79,6 +91,7 @@ void traverseFS(int clients, char *path){
 	recursiveTraverseFS(clients, path, fp, &toInsert, &nFiles);
 
 	// close all the file pointers
+	close(fp);
 }
 
 int main(int argc, char *argv[]){ 
@@ -86,11 +99,22 @@ int main(int argc, char *argv[]){
   char folderName[100] = {'\0'};
   strcpy(folderName, argv[1]);
   int num_clients = atoi(argv[2]);
+  key_t key;
 
   // call traverseFS() to traverse and partition files
-
+  traverseFS(num_clients, folderName);
   //Get access to the msg Queue
+  key = ftok("..", 'q');
+  if (key == -1) {
+    perror("ftok");
+    return 1;
+  }
 
+  msgqueue = msgget(key, 0666 | IPC_CREAT);
+  if (msgqueue == -1) {
+    perror("msgget");
+    return 1;
+  }
   // Create folder for outputs
 
   // Create `num_clients` children processes using fork()
