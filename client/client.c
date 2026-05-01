@@ -58,12 +58,12 @@ void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert,
       (dirContentPtr->d_name[0] != '.'))
       {
         if (dirContentPtr->d_type == DT_REG){
-			fp[nFiles] = dirContentPtr->d_name;
+			fprintf(fp[toInsert], "%s\n", path);
           // For a file, you write its name into a mapper file (pointed by one entry in fp[])
           // NOTE: to balance the number of files per client, you can loop though all clients when distributing files
           // e.f. Assume you have 3 clients, then file1 for client1, file2 for client2, file3 for client3, file4 for client1, file 5 for client2...
         }else if (dirContentPtr->d_type == DT_DIR){
-			recursiveTraverseFS(mappers, basepath, fp, &toInsert, &nFiles);
+			recursiveTraverseFS(mappers, path, fp, &toInsert, &nFiles);
           // For a directory, you call recursiveTraverseFS() 
         }
 		}
@@ -135,7 +135,7 @@ int main(int argc, char *argv[]){
 		msg.mesg_text = line;
 		msgsnd(msgqueue, (void *)&msg, sizeof(msg), 0);
         // wait for ACK from server before sending the next line
-		timestamp();
+		
 		
       }
 
