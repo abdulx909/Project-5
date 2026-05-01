@@ -63,11 +63,12 @@ void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert,
           // NOTE: to balance the number of files per client, you can loop though all clients when distributing files
           // e.f. Assume you have 3 clients, then file1 for client1, file2 for client2, file3 for client3, file4 for client1, file 5 for client2...
         }else if (dirContentPtr->d_type == DT_DIR){
-			recursiveTraverseFS(mappers, basemap, fp, &toInsert, &nFiles);
+			recursiveTraverseFS(mappers, basepath, fp, &toInsert, &nFiles);
           // For a directory, you call recursiveTraverseFS() 
         }
 		}
 	}
+	closedir(dir);
 }
 
 // Wrapper function for recursiveTraverseFS
@@ -75,15 +76,16 @@ void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert,
 // After that, call traverseFS() to traversal and partition files
 void traverseFS(int clients, char *path){
 	FILE *fp[clients];
+	chae *filename[100];
 
 	//Create a folder 'ClientInput' to store CLient Input Files
 	mkdir("ClientInput", 0777);
 	// open client input files to store paths of files to be processed by each server thread
-	open(fp);
 	int i;
 	for (i = 0; i < clients; i++){
+		fp[i] = fopen(filename, "w");
 		// create the mapper file name (ClinetInput/clienti.txt)
-		snprintf(folder
+		snprintf(filename, sizeof(filename), "ClientInput/client%d.txt", i);
 	}
 
 	// Call recursiveTraverseFS
@@ -91,7 +93,8 @@ void traverseFS(int clients, char *path){
 	int nFiles = 0;
 	recursiveTraverseFS(clients, path, fp, toInsert, nFiles);
 	// close all the file pointers
-	close(fp);
+	for (i = 0; i < clients; i++){
+		fclose(fp[i]);
 }
 
 int main(int argc, char *argv[]){ 
