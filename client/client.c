@@ -12,7 +12,7 @@
 #include <time.h>
 
 #define MSGLEN 1024
-#define NUMARGS 2
+#define NUMARGS 3
 #define DIRNULL NULL
 
 struct msg_buffer {
@@ -40,7 +40,6 @@ void timestamp(){
 // nFiles: the total number of files you traversed
 void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert, int *nFiles){
 	struct dirent *dirContentPtr;
-	char path[100];
 	//check if the directory exists
 	DIR *dir = opendir(basePath);
 	if(dir == DIRNULL){
@@ -57,13 +56,17 @@ void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert,
       strcmp(dirContentPtr->d_name, ".DS_Store") != 0 &&
       (dirContentPtr->d_name[0] != '.'))
       {
+        char fullPath[MSGLEN];
+        snprintf(fullPath, sizeof(fullPath), "%s/%s", basePath, dirContentPtr->d_name);
         if (dirContentPtr->d_type == DT_REG){
-			fprintf(fp[toInsert], "%s\n", path);
+			    fprintf(fp[*toInsert], "%s\n", fullPath);
+          *toInsert = (*toInsert + 1) % mappers;
+          (*nFiles)++;;
           // For a file, you write its name into a mapper file (pointed by one entry in fp[])
           // NOTE: to balance the number of files per client, you can loop though all clients when distributing files
           // e.f. Assume you have 3 clients, then file1 for client1, file2 for client2, file3 for client3, file4 for client1, file 5 for client2...
         }else if (dirContentPtr->d_type == DT_DIR){
-			recursiveTraverseFS(mappers, path, fp, &toInsert, &nFiles);
+			    recursiveTraverseFS(mappers, fullPath, fp, toInsert, nFiles);
           // For a directory, you call recursiveTraverseFS() 
         }
 		}
@@ -76,36 +79,58 @@ void recursiveTraverseFS(int mappers, char *basePath, FILE *fp[], int *toInsert,
 // After that, call traverseFS() to traversal and partition files
 void traverseFS(int clients, char *path){
 	FILE *fp[clients];
-	char *filename[100];
+	char filename[100];
 
 	//Create a folder 'ClientInput' to store CLient Input Files
 	mkdir("ClientInput", 0777);
 	// open client input files to store paths of files to be processed by each server thread
-	int i;
-	for (i = 0; i < clients; i++){
-		fp[i] = fopen(filename, "w");
+	for (int i = 0; i < clients; i++){
 		// create the mapper file name (ClinetInput/clienti.txt)
-		snprintf(filename, sizeof(filename), "ClientInput/client%d.txt", i);
+		snprintf(filename, sizeof(filename), "ClientInput/Client%d.txt", i);
+    fp[i] = fopen(filename, "w");
+    if (fp[i] == NULL) {
+      perror("fopen");
+      exit(1);
+    }
 	}
+
 
 	// Call recursiveTraverseFS
 	int toInsert = 0; //refers to the File to which the current file path should be inserted
 	int nFiles = 0;
-	recursiveTraverseFS(clients, path, fp, toInsert, nFiles);
+	recursiveTraverseFS(clients, path, fp, &toInsert, &nFiles);
 	// close all the file pointers
-	for (i = 0; i < clients; i++){
+	for (int i = 0; i < clients; i++){
 		fclose(fp[i]);
+  }
 }
 
 int main(int argc, char *argv[]){ 
   // Usage: ./client [input folder] [process num]
   char folderName[100] = {'\0'};
-  strcpy(folderName, argv[1]);
-  int num_clients = atoi(argv[2]);
+  int num_clients;
   key_t key;
-  struct msg_buffer msg;
-  struct msg_buffer res;
-  char output[MSGLEN];
+  int msgqueue;
+
+  setbuf(stdout, NULL);
+  if (argc != NUMARGS) {
+    fprintf(stderr, "Usage: ./client [input folder] [process num]\n");
+    return 1;
+  }
+
+  strcpy(folderName, argv[1]);
+  num_clients = atoi(argv[2]);
+  if (num_clients <= 0) {
+    fprintf(stderr, "Invalid number of clients.\n");
+    return 1;
+  }
+
+  timestamp();
+  printf("Client starts...\n");
+
+  timestamp();
+  printf("Directory %s traversal and file partitioning...\n", folderName);
+
   // call traverseFS() to traverse and partition files
   traverseFS(num_clients, folderName);
   //Get access to the msg Queue
@@ -121,34 +146,88 @@ int main(int argc, char *argv[]){
     return 1;
   }
   // Create folder for outputs
-  mkdir("ClientOutputs", 0777);
+  mkdir("Output", 0777);
   // Create `num_clients` children processes using fork()
   for (int i=0; i<num_clients; i++){
     pid_t pid = fork();
+    
+    if (pid < 0) {
+      perror("fork");
+      return 1;
+    }
+    
     if (pid==0){
       // For each client process, send each line of clienti to server
       char line[MSGLEN]={'\0'};
       FILE * ftr; // ftr should point to the correct clienti.txt
-      while (fgets (line, MSGLEN, ftr)!=NULL ) {
-        // Sned line
-		msg.mesg_type = 1;
-		msg.mesg_text = line;
-		msgsnd(msgqueue, (void *)&msg, sizeof(msg), 0);
-        // wait for ACK from server before sending the next line
-		
-		
+      struct msg_buffer msg;
+      struct msg_buffer ack;    
+      struct msg_buffer result;
+
+      char filename[100];
+      snprintf(filename, sizeof(filename), "ClientInput/Client%d.txt", i);
+      ftr = fopen(filename, "r");
+
+      if (ftr == NULL) {
+        perror("fopen");
+        exit(1);
       }
+      
+      while (fgets (line, MSGLEN, ftr)!=NULL) {
+        line[strcspn(line, "\n")] = '\0';
+        // Sned line
+        msg.mesg_type = i + 1;
+        strcpy(msg.mesg_text, line);
+        timestamp();
+        printf("Sending %s from client process %d\n", line, i);
+
+        // wait for ACK from server before sending the next line
+        if (msgsnd(msgqueue, &msg, sizeof(msg.mesg_text), 0) == -1) {
+          perror("msgsnd");
+          fclose(ftr);
+          exit(1);
+        }
+
+        if (msgrcv(msgqueue, &ack, sizeof(ack.mesg_text), 1000 + (i + 1), 0) == -1) {
+          perror("msgrcv");
+          fclose(ftr);
+          exit(1);
+        }
+
+        timestamp();
+        printf("Client process %d received %s from server for %s\n", i, ack.mesg_text, line);
+      }
+
+      fclose(ftr);
 
       // When finish sending all the lines in clienti.txt
       // send END message to server
-	  msg.mesg_text = "END";
-	  msgsnd(msgqueue, (void *)&msg, sizeof(msg), 0);
-      //Wait with msgrcv() for the result (output string)
-	  msgrcv(msgqueue, (void *)&res, sizeof(res), 0, 0);
+	    msg.mesg_type = i + 1;
+      strcpy(msg.mesg_text, "END");
+
+      timestamp();
+      printf("Sending END from client process %d\n", i);
+
+      if (msgsnd(msgqueue, &msg, sizeof(msg.mesg_text), 0) == -1) {
+        perror("msgsnd");
+        exit(1);
+      }
+
+      if (msgrcv(msgqueue, &result, sizeof(result.mesg_text), 2000 + (i + 1), 0) == -1) {
+        perror("msgrcv");
+        exit(1);
+      }
+
+      timestamp();
+      printf("Client process %d received |||%s||| from server\n", i, result.mesg_text);
       //write output to file
-	  snprintf(output, sizeof(output), "Output/Client%d_out.txt", i);
-	  FILE *fin = fopen(output, "w");
- 	  fprintf(output, "%s", result.mesg_text);
+      char outputFile[100]; // UPDATED
+      snprintf(outputFile, sizeof(outputFile), "Output/Client%d_out.txt", i);
+      FILE *out = fopen(outputFile, "w");
+      if (out != NULL) {
+        fprintf(out, "%s", result.mesg_text);
+        fclose(out);
+      }
       exit(0);
     }
   }
@@ -157,6 +236,8 @@ int main(int argc, char *argv[]){
   for (int i = 0; i < num_clients; i++) {
 	  wait(NULL);
   }
-  return 0;
 
+  timestamp();
+  printf("Client ends...\n");
+  return 0;
 }
