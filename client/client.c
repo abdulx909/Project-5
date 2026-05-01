@@ -147,6 +147,9 @@ int main(int argc, char *argv[]){
   }
 
   //parent process waits for all children to finish
+  for (int i = 0; i < num_clients; i++) {
+	  wait(NULL);
+  }
   return 0;
 
 }
